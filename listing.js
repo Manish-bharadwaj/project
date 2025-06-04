@@ -1,44 +1,90 @@
-const mongoose = require("mongoose");
-const Schema = mongoose.Schema;
-const Review = require("./review.js")
+const express = require("express");
+const router = express.Router();
+const wrapAsync = require("../utils/wrapAsync.js");
+const myExpressError = require("../utils/myExpressError.js")
+const{ listingSchema} = require("../schema.js");
+const Listing = require("../models/listing.js");
 
-const listingSchema  = new Schema({
-    title : {
-        type : String,
-        required : true,
-    },
-    description: String,
-    image: {
-      url: {
-        type: String,
-        default:
-          "https://images.unsplash.com/photo-1625505826533-5c80aca7d157?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTJ8fGdvYXxlbnwwfHwwfHx8MA%3D%3D&auto=format&fit=crop&w=800&q=60",
-        set: (v) =>
-          v === ""
-            ? "https://images.unsplash.com/photo-1625505826533-5c80aca7d157?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTJ8fGdvYXxlbnwwfHwwfHx8MA%3D%3D&auto=format&fit=crop&w=800&q=60"
-            : v,
-      },
-      filename: String, 
-    },
-    price : Number,
-    location : String,
-    country : String,
-    reviews : [
-      {
-       type : Schema.Types.ObjectId,
-       ref : "Review"
-      }
-    ]
-});
-  
-listingSchema.pre("findOneAndDelete", async function (next) {
-  const listing = await this.model.findOne(this.getQuery());
-  if (listing) {
-      await Review.deleteMany({ _id: { $in: listing.reviews } });
-  }
+
+const validateListing = (req, res, next) => {
+let {error} = listingSchema.validate(req.body);
+if(error){
+  let errMsg = error.details.map((el) => el.message).join(",");
+ throw new myExpressError(400, errMsg)
+}
+else{
   next();
-}); 
+ }
+};
 
-const Listing = mongoose.model("Listing", listingSchema);
 
-module.exports = Listing;
+//Index route
+router.get("/", wrapAsync( async(req,res) =>{
+  const allListings = await Listing.find({});
+  console.log(allListings); 
+  res.render("listings/index.ejs", {allListings})
+ })
+);
+
+  //New route
+router.get("/new", (req,res) =>{
+    res.render("listings/new.ejs")
+  });
+
+  //show route
+router.get("/:id", wrapAsync(async(req,res)=>{
+    let {id} = req.params;
+     const listing = await Listing.findById(id).populate("reviews");
+     if(!listing){
+      req.flash("error", "Listing you requested for does not exist!")
+      res.redirect("/listings");
+     }
+     res.render("listings/show.ejs", { listing })
+  })
+);
+
+
+  // Create route
+router.post("/", validateListing, wrapAsync(async (req,res,next) => {
+    const newListing = new Listing(req.body.listing);
+    await newListing.save();
+    req.flash("success", "New Listing Created!")
+    res.redirect(`/listings`);
+  })
+   );
+
+
+
+  //Edit route
+router.get("/:id/edit", wrapAsync(async(req,res) =>{
+    let {id} = req.params;
+     const listing = await Listing.findById(id);
+     if(!listing){
+      req.flash("error", "Listing you requested for does not exist!")
+      res.redirect("/listings");
+     }
+     res.render("listings/edit.ejs", {listing})
+  })
+);
+
+  //Updated Route
+router.put("/:id", validateListing, wrapAsync(async(req,res) =>{
+    let {id} = req.params;
+     await Listing.findByIdAndUpdate(id, {...req.body.listing});
+     req.flash("success", "Listing Updated!")
+    res.redirect(`/listings/${id}`) 
+  })
+);
+
+
+  //Delete route
+router.delete("/:id", wrapAsync(async(req,res) =>{
+    let {id} = req.params;
+    let deletelisting = await Listing.findByIdAndDelete(id);
+    console.log(deletelisting);
+    req.flash("success", "Listing deleted!")
+    res.redirect("/listings");
+  })
+);
+
+module.exports = router;
